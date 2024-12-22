@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Processed Results Viewer - Pure HTML/JS</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        h1, h2 {
+            margin: 10px 0;
+        }
+        input[type="file"],
+        input[type="number"] {
+            margin-bottom: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+        }
+        table, th, td {
+            border: 1px solid #999;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background: #f2f2f2;
+        }
+        .section {
+            margin: 20px 0;
+        }
+        pre {
+            background: #f2f2f2;
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Processed Results Viewer</h1>
+
+    <!-- File inputs for CSV files -->
+    <label for="productFile">Product CSV:</label>
+    <input type="file" id="productFile" accept=".csv"><br>
+    <label for="refundFile">Refund CSV:</label>
+    <input type="file" id="refundFile" accept=".csv"><br>
+
+    <!-- Numeric inputs for rates and fees -->
+    <label for="shippingCost">Shipping Cost:</label>
+    <input type="number" id="shippingCost" step="0.01"><br>
+    <label for="transactionFeeRate">Transaction Fee (%) :</label>
+    <input type="number" id="transactionFeeRate" step="0.01"><br>
+    <label for="paymentFeeRate">Payment Fee (%) :</label>
+    <input type="number" id="paymentFeeRate" step="0.01"><br>
+    <label for="cashbackRate">Cashback Rate (%) :</label>
+    <input type="number" id="cashbackRate" step="0.01"><br>
+    <button onclick="processData()">Process</button>
+
+    <div class="section">
+        <h2>Original Results</h2>
+        <div id="originalResults"></div>
+    </div>
+
+    <div class="section">
+        <h2>Adjusted Results</h2>
+        <div id="adjustedResults"></div>
+    </div>
+
+    <div class="section">
+        <h2>Validation Results</h2>
+        <div id="validationResults"></div>
+    </div>
+
+    <script>
+        /**
+         * Utility: Parse CSV file into an array of objects.
+         * The first row is assumed to be headers.
+         */
+        function parseCSVFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = event => {
+                    try {
+                        const text = event.target.result.trim();
+                        const rows = text.split(/\r?\n/);
+                        const headers = rows[0].split(",").map(h => h.trim());
+
+                        const data = rows.slice(1).map(row => {
+                            const values = row.split(",");
+                            const obj = {};
+                            headers.forEach((header, i) => {
+                                const val = values[i] ? values[i].trim() : "";
+                                // Attempt parseFloat, fallback to string
+                                const num = parseFloat(val);
+                                obj[header] = isNaN(num) ? val : num;
+                            });
+                            return obj;
+                        });
+                        resolve(data);
+                    } catch (error) {
+                        reject(error);
+                    }
+                };
+                reader.onerror = error => reject(error);
+                reader.readAsText(file);
+            });
+        }
+
+        /**
+         * Utility: Create an HTML table from an array of objects.
+         */
+        function createTable(dataArray) {
+            if (!dataArray || dataArray.length === 0) {
+                return document.createTextNode("No data");
+            }
+
+            // Table + header
+            const table = document.createElement("table");
+            const thead = document.createElement("thead");
+            const tbody = document.createElement("tbody");
+
+            const headers = Object.keys(dataArray[0]);
+            const headerRow = document.createElement("tr");
+            headers.forEach(h => {
+                const th = document.createElement("th");
+                th.textContent = h;
+                headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+
+            // Rows
+            dataArray.forEach(rowObj => {
+                const tr = document.createElement("tr");
+                headers.forEach(h => {
+                    const td = document.createElement("td");
+                    td.textContent = rowObj[h];
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+
+            table.appendChild(thead);
+            table.appendChild(tbody);
+            return table;
+        }
+
+        /**
+         * Step 1: Aggregate refunds by ID.
+         * Equivalent to the Python "aggregate_refunds" function.
+         */
+        function aggregateRefunds(refundData) {
+            // Example: { Id -> sumOfRefundNumbers }
+            const map = {};
+            refundData.forEach(row => {
+                const Id = row["Id"];
+                const refundNum = row["Refund number"] || 0;
+                if (!map[Id]) {
+                    map[Id] = 0;
+                }
+                map[Id] += refundNum;
+            });
+            return map; // returns { "1": 30, "2": 50, ... }
+        }
+
+        /**
+         * Step 2: Convert logic from `calculate_refund`.
+         * Returns: [refundPointsValue, refundActualMoney, totalRefundAmount, refundAmountOnly]
+         */
+        function calculateRefund(row, aggregatedRefundMap, shippingCost) {
+            const refundAmount = aggregatedRefundMap[row["Id"]] || 0;
+
+            // Validate: if refundAmount > row["Total price"], show error
+            if (refundAmount > row["Total price"]) {
+                throw new Error(
+                    `Error: Refund amount (${refundAmount}) exceeds Total price (${row["Total price"]}) for row with Id: ${row["Id"]}`
+                );
+            }
+
+            // Adjust total price (minus refund)
+            const adjustTotalPrice = row["Total price"] - refundAmount;
+            // If adjustTotalPrice is 0 => shipping is refunded
+            const refundShipping = (adjustTotalPrice === 0) ? shippingCost : 0;
+            const finalRefundAmount = refundAmount + refundShipping;
+
+            const pointsUsed = row["Used points"] || 0;
+            if (finalRefundAmount <= pointsUsed) {
+                // Entire refund covered by points
+                return [finalRefundAmount, 0, finalRefundAmount, refundAmount];
+            } else {
+                // Partial by points, partial by actual money
+                const actualMoney = finalRefundAmount - pointsUsed;
+                return [pointsUsed, actualMoney, finalRefundAmount, refundAmount];
+            }
+        }
+
+        /**
+         * Step 3: Main logic from `calculate_costs_with_adjustments`.
+         * Returns [originalData, adjustedData].
+         */
+        function calculateCostsWithAdjustments(row, shippingCost, transactionFeeRate, paymentFeeRate, cashbackRate, aggregatedRefundMap) {
+            const [refundPointsValue, refundActualMoney, totalRefundAmount, baseRefundAmount] =
+                calculateRefund(row, aggregatedRefundMap, shippingCost);
+
+            const adjustTotalPrice = row["Total price"] - baseRefundAmount;
+
+            // Adjusted metrics
+            const adjust_platform_fee = (adjustTotalPrice === 0) ? 0 : adjustTotalPrice * transactionFeeRate;
+            const adjust_payment_fee = (adjustTotalPrice === 0) ? 0 : (adjustTotalPrice + shippingCost) * paymentFeeRate;
+            // Adjusted buyer points => (adjustTotalPrice - (Used points - refundPointsValue)) * cashbackRate
+            const usedPointsAfterRefund = row["Used points"] - refundPointsValue;
+            const adjust_point_for_buyer = Math.max((adjustTotalPrice - usedPointsAfterRefund) * cashbackRate, 0);
+            const adjust_point_for_seller = adjustTotalPrice * cashbackRate;
+            // Seller earn after adjustments
+            const adjust_seller_earn = Math.max(
+                adjustTotalPrice - adjust_platform_fee - adjust_payment_fee - adjust_point_for_seller,
+                0
+            );
+            const adjust_platform_earn = adjust_platform_fee + adjust_payment_fee + adjust_point_for_seller - adjust_point_for_buyer;
+
+            // Original metrics
+            const platform_fee = row["Total price"] * transactionFeeRate;
+            const payment_fee = (row["Total price"] + shippingCost) * paymentFeeRate;
+            const seller_earn = row["Total price"] - platform_fee - payment_fee - (row["Total price"] * cashbackRate);
+            const buyer_pay = row["Total price"] + shippingCost - row["Used points"];
+            const buyer_pay_points = row["Used points"];
+            const point_for_seller = row["Total price"] * cashbackRate;
+            const point_for_buyer = (row["Total price"] - row["Used points"]) * cashbackRate;
+            const platform_earn = platform_fee + payment_fee + point_for_seller - point_for_buyer;
+
+            const original_data = {
+                "Id": row["Id"],
+                "商品總價": row["Total price"],
+                "平台費": round2(platform_fee),
+                "金流費": round2(payment_fee),
+                "商家賺取": round2(seller_earn),
+                "買家實付": round2(buyer_pay),
+                "買家點數付款": round2(buyer_pay_points),
+                "買家獲取點數": round2(point_for_buyer),
+                "賣家支付點數": round2(point_for_seller),
+                "平台賺取": round2(platform_earn)
+            };
+
+            const adjusted_data = {
+                "Id": row["Id"],
+                "調整後總價": round2(adjustTotalPrice),
+                "調整後平台費": round2(adjust_platform_fee),
+                "調整後金流費": round2(adjust_payment_fee),
+                "調整後商家賺取": round2(adjust_seller_earn),
+                "調整後買家獲取點數": round2(adjust_point_for_buyer),
+                "調整後賣家支付點數": round2(adjust_point_for_seller),
+                "調整後平台賺取": round2(adjust_platform_earn),
+                "退款點數": round2(refundPointsValue),
+                "實際退款金額": round2(refundActualMoney)
+            };
+
+            return [original_data, adjusted_data];
+        }
+
+        /**
+         * Step 4: Validate platform earnings. 
+         * Mirrors the Python "validate_platform_earnings".
+         */
+        function validatePlatformEarnings(adjustedResults, originalResults, shippingCost) {
+            // Summations from adjusted results
+            const total_adjusted_platform_fees = sum(adjustedResults, "調整後平台費");
+            const total_adjusted_payment_fees  = sum(adjustedResults, "調整後金流費");
+            const total_adjusted_buyer_points  = sum(adjustedResults, "調整後買家獲取點數");
+            const total_adjusted_seller_points = sum(adjustedResults, "調整後賣家支付點數");
+            const total_adjusted_seller_earn   = sum(adjustedResults, "調整後商家賺取");
+            const total_actual_refunds         = sum(adjustedResults, "實際退款金額");
+            const total_refund_points          = sum(adjustedResults, "退款點數");
+
+            // Summations from original results
+            // Buyer's actual pay + buyer's point usage
+            const total_platform_get = sum(originalResults, "買家實付") + sum(originalResults, "買家點數付款");
+
+            // total shipping fees = count(adjust_total_price>0)*shipping_cost, 
+            // but in the Python code you did this:
+            // sum(1 for result in adjusted_results if result["調整後總價"] > 0) * shipping_cost
+            const total_shipping_fees = adjustedResults.reduce((acc, row) => {
+                return acc + (row["調整後總價"] > 0 ? 1 : 0);
+            }, 0) * shippingCost;
+
+            // Adjusted platform earnings (per your code)
+            //   adjusted_platform_earnings = total_platform_get
+            //     - total_adjusted_buyer_points
+            //     - total_adjusted_seller_earn
+            const adjusted_platform_earnings = total_platform_get
+                - total_adjusted_buyer_points
+                - total_adjusted_seller_earn;
+
+            // refund_impact = total_actual_refunds + total_refund_points
+            const refund_impact = total_actual_refunds + total_refund_points;
+
+            // net_adjusted_earnings = adjusted_platform_earnings
+            //   - refund_impact
+            //   - total_adjusted_payment_fees
+            //   - total_shipping_fees
+            const net_adjusted_earnings = adjusted_platform_earnings
+                - refund_impact
+                - total_adjusted_payment_fees
+                - total_shipping_fees;
+
+            const is_platform_profitable = net_adjusted_earnings > 0;
+
+            return {
+                "調整後總收取平台費": round2(total_adjusted_platform_fees),
+                "調整後金流費": round2(total_adjusted_payment_fees),
+                "調整後發放團購點數": round2(total_adjusted_buyer_points),
+                "調整後賣家團購點數費": round2(total_adjusted_seller_points),
+                "調整後賣家所獲得金額": round2(total_adjusted_seller_earn),
+                "總退回金錢款項": round2(total_actual_refunds),
+                "平台收取總金額(原始商品總金額 + 初始運費)": round2(total_platform_get),
+                "平台收取運費(扣除全款訂單)": round2(total_shipping_fees),
+                "調整後平台收益（未扣取退回款項）": round2(adjusted_platform_earnings),
+                "退回款項（金錢 + 點數）": round2(refund_impact),
+                "平台收益 (扣除平台所需運費, 退回款項)": round2(net_adjusted_earnings),
+                "是否正收益": is_platform_profitable ? "Yes" : "No"
+            };
+        }
+
+        /**
+         * Main driver: 
+         *  1) Parse both CSVs 
+         *  2) Process results
+         *  3) Validate 
+         *  4) Render
+         */
+        async function processData() {
+            const productFile = document.getElementById("productFile").files[0];
+            const refundFile = document.getElementById("refundFile").files[0];
+            if (!productFile || !refundFile) {
+                alert("Please select both Product and Refund CSV files.");
+                return;
+            }
+
+            const shippingCost = parseFloat(document.getElementById("shippingCost").value) || 0;
+            const transactionFeeRate = (parseFloat(document.getElementById("transactionFeeRate").value) || 0) / 100;
+            const paymentFeeRate = (parseFloat(document.getElementById("paymentFeeRate").value) || 0) / 100;
+            const cashbackRate = (parseFloat(document.getElementById("cashbackRate").value) || 0) / 100;
+
+            try {
+                const productData = await parseCSVFile(productFile);
+                const refundData = await parseCSVFile(refundFile);
+
+                // 1) Aggregate refunds
+                const aggregatedRefundMap = aggregateRefunds(refundData);
+
+                // 2) Iterate over productData
+                const originalResults = [];
+                const adjustedResults = [];
+
+                for (const row of productData) {
+                    // Convert to numeric if needed
+                    // row["Total price"], row["Used points"], row["Id"] should be numeric
+                    if (typeof row["Total price"] !== "number") {
+                        row["Total price"] = parseFloat(row["Total price"]) || 0;
+                    }
+                    if (typeof row["Used points"] !== "number") {
+                        row["Used points"] = parseFloat(row["Used points"]) || 0;
+                    }
+
+                    try {
+                        const [orig, adj] = calculateCostsWithAdjustments(
+                            row,
+                            shippingCost,
+                            transactionFeeRate,
+                            paymentFeeRate,
+                            cashbackRate,
+                            aggregatedRefundMap
+                        );
+                        originalResults.push(orig);
+                        adjustedResults.push(adj);
+                    } catch (err) {
+                        // If there's an error with the row, show alert
+                        alert(err.message);
+                    }
+                }
+
+                // 3) Validate
+                const validationRes = validatePlatformEarnings(adjustedResults, originalResults, shippingCost);
+
+                // 4) Render
+                const originalDiv = document.getElementById("originalResults");
+                originalDiv.innerHTML = ""; 
+                originalDiv.appendChild(createTable(originalResults));
+
+                const adjustedDiv = document.getElementById("adjustedResults");
+                adjustedDiv.innerHTML = "";
+                adjustedDiv.appendChild(createTable(adjustedResults));
+
+                // Validation results: display as <ul> or as a table
+                const validationDiv = document.getElementById("validationResults");
+                validationDiv.innerHTML = "";
+                // For consistency with your existing approach, let's do <ul>
+                let html = "<ul>";
+                Object.keys(validationRes).forEach(key => {
+                    html += `<li><strong>${key}:</strong> ${validationRes[key]}</li>`;
+                });
+                html += "</ul>";
+                validationDiv.innerHTML = html;
+
+            } catch (err) {
+                alert("Error processing files: " + err.message);
+            }
+        }
+
+        /**
+         * Helper: Summation
+         */
+        function sum(arr, key) {
+            return arr.reduce((acc, obj) => acc + (parseFloat(obj[key]) || 0), 0);
+        }
+
+        /**
+         * Helper: Round to 2 decimal places
+         */
+        function round2(num) {
+            return Math.round((num + Number.EPSILON) * 100) / 100;
+        }
+    </script>
+</body>
+</html>
