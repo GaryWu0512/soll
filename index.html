@@ -313,7 +313,7 @@
                 "總退回金錢款項": round2(total_actual_refunds),
                 "平台收取總金額(原始商品總金額 + 初始運費)": round2(total_platform_get),
                 "平台收取運費(扣除全款訂單)": round2(total_shipping_fees),
-                "調整後平台收益（未扣取退回款項）": round2(adjusted_platform_earnings),
+                "調整後平台收益（未扣取退回款項）= 平台收取總金額 - 調整後賣家所獲得金額 - 調整後發放團購點數": round2(adjusted_platform_earnings),
                 "退回款項（金錢 + 點數）": round2(refund_impact),
                 "平台收益 (扣除平台所需運費, 退回款項) = 調整後總收取平台費 + （賣家負擔團購點數費 - 平台發放團購點數）": round2(net_adjusted_earnings),
                 "是否正收益": is_platform_profitable ? "Yes" : "No"
