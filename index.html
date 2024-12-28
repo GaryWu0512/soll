@@ -53,29 +53,25 @@
         .section {
             margin: 20px 0;
         }
-        pre {
-            background: #f2f2f2;
-            padding: 10px;
-        }
     </style>
 </head>
 <body>
+    <h1>soll金流計算方式</h1>
+
     <!-- Tabs -->
     <div class="tab-container">
-        <div class="tab active" data-tab="tab1">目前有的東西</div>
-        <div class="tab" data-tab="tab2">空白頁</div>
+        <div class="tab active" data-tab="tab1">現實募集金流計算方式</div>
+        <div class="tab" data-tab="tab2">特約店金流計算方式</div>
     </div>
 
+    <!-- Tab Content -->
     <div class="tab-content active" id="tab1">
-        <h1>現實募集金流計算方式</h1>
-    
-        <!-- File inputs for CSV files -->
+        <h2>現實募集金流計算方式</h2>
+        <!-- Content for tab1 -->
         <label for="productFile">訂單Transcation CSV:</label>
         <input type="file" id="productFile" accept=".csv"><br>
         <label for="refundFile">退費Transcation CSV:</label>
         <input type="file" id="refundFile" accept=".csv"><br>
-    
-        <!-- Numeric inputs for rates and fees -->
         <label for="shippingCost">運費:</label>
         <input type="number" id="shippingCost" step="0.01"><br>
         <label for="transactionFeeRate">交易費手續費 (%) :</label>
@@ -85,33 +81,50 @@
         <label for="cashbackRate">募集獎勵 (%) :</label>
         <input type="number" id="cashbackRate" step="0.01"><br>
         <button onclick="processData()">Process</button>
-    
         <div class="section">
             <h2>退費前金流</h2>
             <div id="originalResults"></div>
         </div>
-    
         <div class="section">
             <h2>退費後修改金流</h2>
             <div id="adjustedResults"></div>
         </div>
-    
         <div class="section">
             <h2>金流驗證結果</h2>
             <div id="validationResults"></div>
         </div>
     </div>
+
     <div class="tab-content" id="tab2">
-        <h2>空白頁</h2>
+        <h2>特約店金流計算方式</h2>
         <p>這裡可以放置未來的內容。</p>
     </div>
 
     <script>
+        // JavaScript for Tab Switching
+        document.addEventListener('DOMContentLoaded', () => {
+            const tabs = document.querySelectorAll('.tab');
+            const contents = document.querySelectorAll('.tab-content');
+
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    // Remove 'active' from all tabs and contents
+                    tabs.forEach(t => t.classList.remove('active'));
+                    contents.forEach(content => content.classList.remove('active'));
+
+                    // Add 'active' to the clicked tab and its corresponding content
+                    tab.classList.add('active');
+                    const target = tab.getAttribute('data-tab');
+                    document.getElementById(target).classList.add('active');
+                });
+            });
+        });
+
         /**
          * Utility: Parse CSV file into an array of objects.
          * The first row is assumed to be headers.
          */
-        function parseCSVFile(file) {
+         function parseCSVFile(file) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = event => {
