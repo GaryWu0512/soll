@@ -161,6 +161,8 @@
         <input type="file" id="shopRefundFile" accept=".csv"><br>
         <label for="shopTransactionFeeRate">交易費手續費 (%) :</label>
         <input type="number" id="shopTransactionFeeRate" step="0.01"><br>
+        <label for="shopRefundFeeRate">退費手續費 (%) :</label>
+        <input type="number" id="shopRefundFeeRate" step="0.01"><br>
         <label for="shopPaymentFeeRate">金流費 (%) :</label>
         <input type="number" id="shopPaymentFeeRate" step="0.01"><br>
         <button onclick="processDataForShop()">Process</button>
@@ -343,7 +345,7 @@
             }
         }
 
-        function calculateShopRefund(row, aggregatedShopRefundMap, transactionFeeRate) {
+        function calculateShopRefund(row, aggregatedShopRefundMap, shopRefundFeeRate) {
             // Extract refund details for the given Id
             const refundDetails = aggregatedShopRefundMap[row["Id"]] || { totalBefore10RefundNumbers: 0, totalAfter10RefundNumbers: 0 };
 
@@ -367,7 +369,7 @@
             const adjustTotalPrice = row["Total price"] - totalRefundAmount;
 
             // Calculate penalty for after-10 refunds
-            const penalty = round2(totalAfter10RefundNumbers * transactionFeeRate);
+            const penalty = round2(totalAfter10RefundNumbers * shopRefundFeeRate);
 
             // Calculate final refund amount after deducting penalty
             const finalRefundAmount = totalRefundAmount - penalty;
@@ -450,9 +452,9 @@
          * Step 3: Main logic from `calculateShopCostsWithAdjustments`.
          * Returns [originalData, adjustedData].
          */
-         function calculateShopCostsWithAdjustments(row, transactionFeeRate, paymentFeeRate, aggregatedShopRefundMap) {
+         function calculateShopCostsWithAdjustments(row, transactionFeeRate, shopRefundFeeRate, paymentFeeRate, aggregatedShopRefundMap) {
             const [refundPointsValue, refundActualMoney, finalRefundAmount, penalty, totalRefundAmount] =
-            calculateShopRefund(row, aggregatedShopRefundMap, transactionFeeRate);
+            calculateShopRefund(row, aggregatedShopRefundMap, shopRefundFeeRate);
         
             const adjustTotalPrice = row["Total price"] - totalRefundAmount;
 
@@ -714,6 +716,7 @@
             }
 
             const shopTransactionFeeRate = (parseFloat(document.getElementById("shopTransactionFeeRate").value) || 0) / 100;
+            const shopRefundFeeRate = (parseFloat(document.getElementById("shopRefundFeeRate").value) || 0) / 100;
             const shopPaymentFeeRate = (parseFloat(document.getElementById("shopPaymentFeeRate").value) || 0) / 100;
 
             try {
@@ -741,6 +744,7 @@
                         const [orig, adj] = calculateShopCostsWithAdjustments(
                             row,
                             shopTransactionFeeRate,
+                            shopRefundFeeRate,
                             shopPaymentFeeRate,
                             aggregatedShopRefundMap
                         );
