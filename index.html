@@ -147,6 +147,10 @@
             <div id="adjustedResults"></div>
         </div>
         <div class="section">
+             <h2>分帳以及作帳結算日</h2>
+            <div id="dividMoneryResults"></div>
+        </div>
+        <div class="section">
             <h2>金流驗證結果</h2>
             <div id="validationResults"></div>
         </div>
@@ -504,6 +508,35 @@
             return [original_data, adjusted_data];
         }
 
+         function calculateDivid(original_data, adjusted_data) {
+            // Original metrics
+            const totalPrice = adjusted_data["調整後總價"];
+            const usedPoint = adjusted_data["調整後賣家支付點數"];
+            const payment_fee = adjusted_data["調整後金流費"];
+            const platform_fee = adjusted_data["調整後平台費"];
+            const cash = adjusted_data["調整後總價"] - adjusted_data["調整後賣家支付點數"];
+
+            const plarformDivid = payment_fee + platform_fee;
+            const seller_Divid = cash - plarformDivid > 0 ? cash - plarformDivid : 0; 
+
+            const seller_owns = plarformDivid - cash > 0 ? plarformDivid - cash : 0;
+            const platform_owns = usedPoint;
+
+            const platform_pay = platform_owns - seller_owns;
+    
+
+            const divid_data = {
+                "Id": adjusted_data["Id"],
+                "供應商分帳": round2(seller_Divid),
+                "平台分帳": round2(cash > plarformDivid ? plarformDivid : cash),
+                "供應商欠款": round2(seller_owns),
+                "平台欠款": round2(platform_owns),
+                "結算日平台需付": round2(platform_pay)
+            };
+
+            return divid_data;
+        }
+
         /**
          * Step 4: Validate platform earnings. 
          * Mirrors the Python "validate_platform_earnings".
@@ -644,6 +677,7 @@
                 // 2) Iterate over productData
                 const originalResults = [];
                 const adjustedResults = [];
+                const dividMoneryResults = [];
 
                 for (const row of productData) {
                     // Convert to numeric if needed
@@ -664,8 +698,13 @@
                             cashbackRate,
                             aggregatedRefundMap
                         );
+
+                        const dividMoney = calculateDivid(
+                            orig, adj
+                        )
                         originalResults.push(orig);
                         adjustedResults.push(adj);
+                        dividMoneryResults.push(dividMoney)
                     } catch (err) {
                         // If there's an error with the row, show alert
                         alert(err.message);
@@ -683,6 +722,11 @@
                 const adjustedDiv = document.getElementById("adjustedResults");
                 adjustedDiv.innerHTML = "";
                 adjustedDiv.appendChild(createTable(adjustedResults));
+
+
+                const dividDiv = document.getElementById("dividMoneryResults");
+                dividDiv.innerHTML = "";
+                dividDiv.appendChild(createTable(dividMoneryResults));
 
                 // Validation results: display as <ul> or as a table
                 const validationDiv = document.getElementById("validationResults");
@@ -748,6 +792,7 @@
                             shopPaymentFeeRate,
                             aggregatedShopRefundMap
                         );
+                        
                         shopOriginalResults.push(orig);
                         shopAdjustedResults.push(adj);
                     } catch (err) {
@@ -769,7 +814,7 @@
                 adjustedDiv.innerHTML = "";
                 adjustedDiv.appendChild(createTable(shopAdjustedResults));
 
-                 // Validation results: display as <ul> or as a table
+                // Validation results: display as <ul> or as a table
                 const validationDiv = document.getElementById("shopValidationResults");
                 validationDiv.innerHTML = "";
                 // For consistency with your existing approach, let's do <ul>
